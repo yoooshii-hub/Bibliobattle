@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>マイルーム｜ビブリオバトル投票</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .head { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .head h1 { flex: 1; font-size: 26px; }
+  .new { display: flex; gap: 8px; margin-bottom: 24px; }
+  .new input { flex: 1; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .ev { display: flex; flex-direction: column; gap: 10px; text-decoration: none; color: inherit; transition: transform .15s, box-shadow .15s; }
+  .ev:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(59,42,32,.12); }
+  .ev h3 { font-size: 18px; word-break: break-all; }
+  .ev .meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+  .empty { text-align: center; padding: 48px 20px; color: var(--muted); }
+  .empty .icons { display: flex; justify-content: center; gap: 6px; margin-bottom: 8px; opacity: .7; }
+  .empty .icons span { width: 48px; height: 48px; }
+  @media (max-width: 520px) { .new { flex-direction: column; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/room"><span id="logo"></span>ビブリオバトル投票</a>
+  <div class="spacer"></div>
+  <span class="user" id="user"></span>
+  <button class="btn-ghost" id="logout">ログアウト</button>
+</header>
+<main class="wrap">
+  <div class="head">
+    <h1>マイルーム</h1>
+  </div>
+  <form class="new" id="newForm">
+    <input type="text" name="name" placeholder="新しいイベント名（例：第3回 ビブリオバトル in 〇〇図書館）" maxlength="80" required>
+    <button class="btn-primary">＋ イベントを作成</button>
+  </form>
+  <div class="grid" id="list"></div>
+</main>
+<script src="/common.js"></script>
+<script>
+  logo.innerHTML = BV_ICONS[0];
+  const STATUS = { draft: ['準備中', ''], running: ['開催中', 'running'], ended: ['終了', 'ended'] };
+
+  async function load() {
+    const [me, events] = await Promise.all([api('GET', '/api/me'), api('GET', '/api/events')]);
+    user.textContent = me.username + ' さん';
+    if (!events.length) {
+      list.innerHTML = `<div class="card empty" style="grid-column:1/-1">
+        <div class="icons">${BV_ICONS.map((s) => `<span>${s}</span>`).join('')}</div>
+        まだイベントがありません。上のフォームから作成しましょう。</div>`;
+      return;
+    }
+    list.innerHTML = events.map((e) => {
+      const [label, cls] = STATUS[e.status];
+      return `<a class="card ev" href="/admin/event/${e.id}">
+        <div><span class="badge ${cls}">${label}</span></div>
+        <h3>${esc(e.name)}</h3>
+        <div class="meta"><span>保存済みセッション ${e.sessions}件</span>${e.status === 'running' ? `<span>接続中 ${e.online}人</span>` : ''}<span>作成 ${fmtTime(e.createdAt)}</span></div>
+      </a>`;
+    }).join('');
+  }
+
+  newForm.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const { id } = await api('POST', '/api/events', { name: newForm.name.value });
+      location.href = '/admin/event/' + id;
+    } catch (ex) { toast(ex.message, 'error'); }
+  };
+  logout.onclick = async () => { await api('POST', '/api/logout'); location.href = '/login'; };
+  load();
+</script>
+</body>
+</html>

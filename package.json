@@ -1,0 +1,19 @@
+{
+  "name": "biblio-vote",
+  "version": "1.0.0",
+  "description": "ビブリオバトル用リアルタイム投票アプリ",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.22.3",
+    "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.4"
+  }
+}

@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>合計表示｜ビブリオバトル投票</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; background: radial-gradient(ellipse at top, #fffaf0, var(--bg) 70%); }
+  header { text-align: center; padding: 2.5vh 4vw 1vh; }
+  header h1 { font-size: clamp(20px, 3.2vw, 48px); font-weight: 900; }
+  header .sub { font-size: clamp(14px, 1.8vw, 26px); font-weight: 800; color: var(--muted); margin-top: .4vh; min-height: 1.3em; }
+  .cols { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2.4vw; padding: 2vh 3vw 3vh; min-height: 0; }
+  .col {
+    position: relative; overflow: hidden; border: 4px solid var(--ink); border-radius: 28px; background: var(--soft);
+    box-shadow: 0 8px 0 var(--ink); display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 2vh 1vw; min-height: 0;
+  }
+  .col.hit { animation: hit .3s ease-out; }
+  @keyframes hit { 40% { transform: translateY(-6px) scale(1.015); } }
+  .col .ic { width: min(16vw, 26vh); aspect-ratio: 1; position: relative; z-index: 2; }
+  .col.c0 .ic { width: min(20vw, 30vh); }
+  .col .lb { font-size: clamp(14px, 1.9vw, 30px); font-weight: 900; text-align: center; line-height: 1.3; margin: 1vh 0; position: relative; z-index: 2; }
+  .col .n { font-size: clamp(56px, 11vw, 200px); font-weight: 900; line-height: 1; color: var(--col); font-variant-numeric: tabular-nums; position: relative; z-index: 2; text-shadow: 0 4px 0 #fff; }
+  .col .n.bump { animation: bump .35s ease-out; }
+  @keyframes bump { 35% { transform: scale(1.18); } }
+  .fly { position: absolute; bottom: -60px; width: 52px; height: 52px; z-index: 1; pointer-events: none; animation: fly var(--t) cubic-bezier(.2, .6, .4, 1) forwards; opacity: .9; }
+  @keyframes fly {
+    0% { transform: translate(0, 0) scale(.6) rotate(0); opacity: 0; }
+    10% { opacity: .95; }
+    100% { transform: translate(var(--dx), calc(-1 * var(--h))) scale(1.1) rotate(var(--r)); opacity: 0; }
+  }
+  .plus { position: absolute; z-index: 3; font-weight: 900; font-size: clamp(20px, 2.4vw, 40px); color: var(--col); pointer-events: none; text-shadow: 0 2px 0 #fff, 0 -2px 0 #fff, 2px 0 0 #fff, -2px 0 0 #fff; animation: plus 1s ease-out forwards; }
+  @keyframes plus { from { transform: translateY(0) scale(.7); opacity: 0; } 20% { opacity: 1; transform: translateY(-10px) scale(1.15); } to { transform: translateY(-80px); opacity: 0; } }
+  footer { display: flex; justify-content: center; gap: 2vw; align-items: center; padding: 0 3vw 2vh; font-weight: 800; color: var(--muted); font-size: clamp(14px, 1.6vw, 24px); }
+  footer b { color: var(--ink); font-size: 1.4em; font-variant-numeric: tabular-nums; }
+  .fs { position: fixed; right: 12px; bottom: 12px; opacity: 0; transition: opacity .3s; }
+  body:hover .fs { opacity: .85; }
+  .gone { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; background: var(--bg); z-index: 9; }
+  @media (max-aspect-ratio: 3/4) {
+    .cols { grid-template-columns: 1fr; }
+    .col { flex-direction: row; gap: 4vw; }
+    .col .ic, .col.c0 .ic { width: 18vh; }
+    .col .n { font-size: 12vh; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="evName"></h1>
+  <div class="sub" id="sub"></div>
+</header>
+<main class="cols" id="cols"></main>
+<footer><span>合計 <b id="total">0</b> 票</span></footer>
+<button class="fs" id="fs">⛶ 全画面</button>
+<div class="gone" id="gone">表示できません（URLを確認してください）</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/common.js"></script>
+<script>
+  const slug = location.pathname.split('/').pop();
+  const key = new URLSearchParams(location.search).get('k');
+  const shown = [0, 0, 0];
+  const target = [0, 0, 0];
+
+  cols.innerHTML = BV_CHOICES.map((ch, i) => `
+    <div class="col c${i}" id="col${i}" style="--soft:${ch.soft};--col:${ch.color}">
+      <div class="ic">${BV_ICONS[i]}</div>
+      <div class="lb">${ch.label.replace('・・', '・・<br>')}</div>
+      <div class="n" id="n${i}">0</div>
+    </div>`).join('');
+
+  // 数字をなめらかに目標値へ
+  function setTargets(arr, instant) {
+    arr.forEach((v, i) => { target[i] = v; if (instant) shown[i] = v; });
+    paint();
+  }
+  function paint() {
+    let moving = false;
+    for (let i = 0; i < 3; i++) {
+      if (shown[i] !== target[i]) {
+        const d = target[i] - shown[i];
+        shown[i] += Math.sign(d) * Math.max(1, Math.floor(Math.abs(d) / 6));
+        moving = true;
+      }
+      const el = document.getElementById('n' + i);
+      if (el.textContent !== String(shown[i])) el.textContent = shown[i];
+    }
+    total.textContent = target.reduce((a, b) => a + b, 0);
+    if (moving) requestAnimationFrame(paint);
+  }
+
+  // ボタンが押された様子：アイコンが下から舞い上がる
+  let flying = 0;
+  function burst(i, count) {
+    const col = document.getElementById('col' + i);
+    const n = document.getElementById('n' + i);
+    col.classList.remove('hit'); void col.offsetWidth; col.classList.add('hit');
+    n.classList.remove('bump'); void n.offsetWidth; n.classList.add('bump');
+    const w = col.clientWidth, h = col.clientHeight;
+    const k = Math.min(count, 6);
+    for (let j = 0; j < k; j++) {
+      if (flying > 90) break;
+      flying++;
+      const f = document.createElement('div');
+      f.className = 'fly';
+      f.innerHTML = BV_ICONS[i];
+      const t = 1.6 + Math.random() * 1.2;
+      f.style.left = Math.random() * (w - 52) + 'px';
+      f.style.setProperty('--t', t + 's');
+      f.style.setProperty('--h', h + 120 + 'px');
+      f.style.setProperty('--dx', (Math.random() - .5) * 80 + 'px');
+      f.style.setProperty('--r', (Math.random() - .5) * 60 + 'deg');
+      f.style.animationDelay = j * 60 + 'ms';
+      col.appendChild(f);
+      setTimeout(() => { f.remove(); flying--; }, t * 1000 + j * 60 + 50);
+    }
+    const p = document.createElement('div');
+    p.className = 'plus';
+    p.textContent = '+' + count;
+    p.style.left = 20 + Math.random() * (w - 120) + 'px';
+    p.style.top = h * (.15 + Math.random() * .25) + 'px';
+    col.appendChild(p);
+    setTimeout(() => p.remove(), 1050);
+  }
+
+  function applyState(s) {
+    evName.textContent = s.name;
+    document.title = s.name + '｜合計表示';
+    const sess = s.session;
+    sub.textContent = s.status === 'ended' ? 'イベントは終了しました'
+      : s.status === 'draft' ? 'まもなく開始'
+      : sess ? `第${sess.no}セッション${sess.label ? '：' + sess.label : ''}${sess.state === 'open' ? '　投票受付中！' : '　（受付停止中）'}` : '';
+    setTargets(s.display);
+  }
+
+  const socket = io({ transports: ['websocket', 'polling'] });
+  socket.on('connect', () => socket.emit('display:join', { slug, key }));
+  socket.on('denied', () => { gone.style.display = 'flex'; });
+  socket.on('state', applyState);
+  socket.on('tick', (t) => {
+    t.pulses.forEach((c, i) => { if (c > 0) burst(i, c); });
+    setTargets(t.display, t.reset);
+  });
+
+  fs.onclick = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen?.();
+  };
+</script>
+</body>
+</html>

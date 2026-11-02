@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>イベント管理｜ビブリオバトル投票</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 20px; align-items: start; }
+  @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+  .stack { display: grid; gap: 20px; }
+  .ev-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .ev-head h1 { font-size: 24px; word-break: break-all; }
+  .ev-head .grow { flex: 1; min-width: 200px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .section-title { font-size: 15px; font-weight: 800; color: var(--muted); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .section-title .spacer { flex: 1; }
+
+  .share { display: grid; grid-template-columns: 150px 1fr; gap: 18px; align-items: center; }
+  .share .qr { width: 150px; height: 150px; background: #fff; border-radius: 10px; border: 1px solid var(--line); padding: 6px; cursor: zoom-in; }
+  .share .qr img { width: 100%; height: 100%; display: block; }
+  .url { font-family: ui-monospace, monospace; font-size: 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; word-break: break-all; margin-bottom: 10px; }
+  .warn { background: #fff1c7; color: #6b4d00; border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 10px; }
+  @media (max-width: 560px) { .share { grid-template-columns: 1fr; } .share .qr { margin: 0 auto; } }
+
+  .sess-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .sess-head h2 { font-size: 20px; }
+  .online { margin-left: auto; font-weight: 700; color: var(--muted); font-size: 14px; }
+  .online b { color: var(--ink); font-size: 18px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .tile { border-radius: 14px; padding: 14px 10px 12px; text-align: center; background: var(--soft); border: 2px solid transparent; position: relative; overflow: hidden; }
+  .tile .ic { width: 64px; height: 64px; margin: 0 auto; }
+  .tile .lb { font-size: 13px; font-weight: 800; }
+  .tile .n { font-size: 46px; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--col); }
+  .tile.bump { animation: tileBump .35s ease-out; }
+  @keyframes tileBump { 30% { border-color: var(--col); transform: scale(1.04); } }
+  .total-line { text-align: right; margin-top: 8px; font-weight: 700; color: var(--muted); }
+  .total-line b { color: var(--ink); font-size: 20px; }
+  @media (max-width: 560px) { .tile .ic { width: 44px; height: 44px; } .tile .n { font-size: 32px; } .tile .lb { font-size: 11px; } }
+
+  .label-row { display: flex; gap: 8px; align-items: center; margin: 16px 0 12px; }
+  .label-row span { font-weight: 700; font-size: 14px; white-space: nowrap; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .controls .spacer { flex: 1; }
+  .check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin-top: 12px; color: var(--muted); cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .notice { text-align: center; padding: 30px 10px; color: var(--muted); }
+
+  .mini { display: flex; gap: 16px; flex-wrap: wrap; font-weight: 800; margin-bottom: 12px; }
+  .mini span { display: inline-flex; gap: 6px; align-items: center; }
+  .mini i { width: 22px; height: 22px; display: inline-block; }
+
+  .saved { position: sticky; top: 76px; max-height: calc(100vh - 96px); display: flex; flex-direction: column; }
+  .saved-list { overflow: auto; display: grid; gap: 10px; margin: 0 -6px; padding: 2px 6px; }
+  .s-item { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; animation: slideIn .35s ease-out; }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(16px); } }
+  .s-item .t { display: flex; gap: 8px; align-items: baseline; }
+  .s-item .no { font-size: 12px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+  .s-item .name { font-weight: 800; flex: 1; word-break: break-all; }
+  .s-item .crown { font-size: 12px; background: #ffe3da; color: #c2410c; border-radius: 99px; padding: 0 8px; font-weight: 800; white-space: nowrap; }
+  .bars { display: grid; gap: 4px; margin: 8px 0; }
+  .bar { display: grid; grid-template-columns: 20px 1fr 36px; gap: 6px; align-items: center; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .bar i { width: 20px; height: 20px; display: block; }
+  .bar .track { height: 10px; background: #f1e9dc; border-radius: 99px; overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 99px; }
+  .bar .v { text-align: right; }
+  .s-item .act { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+  .s-item .act button { padding: 4px 10px; font-size: 13px; }
+  .s-item .when { font-size: 12px; color: var(--muted); margin-right: auto; align-self: center; }
+
+  #qrModal .modal { width: min(720px, 100%); text-align: center; }
+  #qrModal img { width: min(62vh, 100%); aspect-ratio: 1; background: #fff; padding: 12px; border-radius: 12px; }
+  #qrModal .big-url { font-size: clamp(16px, 3vw, 26px); font-weight: 800; word-break: break-all; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/room"><span id="logo"></span>ビブリオバトル投票</a>
+  <div class="spacer"></div>
+  <a class="btn btn-ghost" href="/room">← マイルーム</a>
+</header>
+
+<main class="wrap">
+  <div class="layout">
+    <div class="stack">
+      <div class="ev-head">
+        <div class="grow">
+          <h1 id="evName"></h1>
+          <button class="btn-ghost small" id="rename" title="イベント名を変更">✎</button>
+          <span class="badge" id="evStatus"></span>
+        </div>
+        <div class="row" id="evActions"></div>
+      </div>
+
+      <section class="card">
+        <div class="section-title">参加者用URL・QRコード</div>
+        <div class="share">
+          <div class="qr" id="qrBox" title="クリックで拡大"><img id="qrImg" alt="参加者用QRコード"></div>
+          <div>
+            <div class="url" id="guestUrl"></div>
+            <div class="row">
+              <button id="copyUrl">URLをコピー</button>
+              <button id="bigQr">QRを大きく表示</button>
+              <a class="btn" id="openGuest" target="_blank" rel="noopener">参加者画面を開く ↗</a>
+            </div>
+            <div class="warn" id="lanWarn" hidden></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="sessCard"></section>
+
+      <section class="card">
+        <div class="section-title">合計表示ページ<span class="spacer"></span></div>
+        <div class="mini" id="dispMini"></div>
+        <div class="row">
+          <a class="btn btn-primary" id="openDisplay" target="_blank" rel="noopener">合計表示ページを開く ↗</a>
+          <button id="copyDisplay">表示ページURLをコピー</button>
+          <button class="btn-danger" id="resetDisplay">合計表示をリセット</button>
+        </div>
+        <p class="muted small" style="margin:10px 0 0">プロジェクター等に映す用の画面です。ゲストがボタンを押すたびにリアルタイムで数が増えます。表示の数はここからいつでも0に戻せます（保存済みの結果には影響しません）。</p>
+      </section>
+    </div>
+
+    <aside class="card saved">
+      <div class="section-title">保存済みセッション<span class="spacer"></span><a class="btn small" id="csv" style="padding:4px 10px">CSV出力</a></div>
+      <div class="saved-list" id="savedList"></div>
+    </aside>
+  </div>
+</main>
+
+<div class="modal-bg" id="saveModal">
+  <form class="modal" id="saveForm">
+    <h3>このセッションを保存</h3>
+    <div class="mini" id="saveMini"></div>
+    <label class="field">誰の投票か（発表者名・本のタイトルなど）<input type="text" name="label" maxlength="80"></label>
+    <p class="muted small" style="margin:0">保存すると参加者の画面の数は0に戻り、次のセッションが始まります。</p>
+    <div class="actions">
+      <button type="button" data-close>キャンセル</button>
+      <button class="btn-ok">保存して次へ</button>
+    </div>
+  </form>
+</div>
+
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <h3 id="cfTitle"></h3>
+    <p id="cfBody" style="margin:0"></p>
+    <div class="actions">
+      <button type="button" data-close>キャンセル</button>
+      <button class="btn-primary" id="cfOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="qrModal">
+  <div class="modal">
+    <h3 id="qrTitle"></h3>
+    <img id="qrBig" alt="参加者用QRコード">
+    <div class="big-url" id="qrUrl"></div>
+    <div class="actions" style="justify-content:center"><button type="button" data-close>閉じる</button></div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/common.js"></script>
+<script>
+  logo.innerHTML = BV_ICONS[0];
+  const eventId = location.pathname.split('/').pop();
+  let ev = null;
+  let urls = {};
+
+  // ---------- モーダル ----------
+  document.querySelectorAll('.modal-bg').forEach((m) => {
+    m.addEventListener('click', (e) => { if (e.target === m || e.target.hasAttribute('data-close')) m.classList.remove('show'); });
+  });
+  function confirmBox(title, body, okText = 'OK', danger = false) {
+    return new Promise((resolve) => {
+      cfTitle.textContent = title;
+      cfBody.textContent = body;
+      cfOk.textContent = okText;
+      cfOk.className = danger ? 'btn-primary' : 'btn-ok';
+      confirmModal.classList.add('show');
+      const done = (v) => { confirmModal.classList.remove('show'); cfOk.onclick = null; confirmModal.onmousedown = null; resolve(v); };
+      cfOk.onclick = () => done(true);
+      confirmModal.querySelector('[data-close]').onclick = () => done(false);
+      confirmModal.onmousedown = (e) => { if (e.target === confirmModal) done(false); };
+    });
+  }
+
+  async function act(method, path, body) {
+    try { return await api(method, `/api/events/${eventId}${path}`, body); }
+    catch (ex) { toast(ex.message, 'error'); throw ex; }
+  }
+
+  // ---------- 描画 ----------
+  const sum = (a) => a.reduce((x, y) => x + y, 0);
+  const iconMini = (i) => `<i>${BV_ICONS[i]}</i>`;
+  const STATUS = { draft: ['準備中', ''], running: ['開催中', 'running'], ended: ['終了', 'ended'] };
+
+  function renderHead() {
+    evName.textContent = ev.name;
+    document.title = `${ev.name}｜ビブリオバトル投票`;
+    const [label, cls] = STATUS[ev.status];
+    evStatus.textContent = label;
+    evStatus.className = 'badge ' + cls;
+    const btns = [];
+    if (ev.status === 'draft') btns.push(`<button class="btn-ok btn-lg" data-a="start">▶ イベントを開始</button>`);
+    if (ev.status === 'running') btns.push(`<button data-a="end">■ イベントを終了</button>`);
+    if (ev.status === 'ended') btns.push(`<button class="btn-ok" data-a="start">▶ イベントを再開</button>`);
+    btns.push(`<button class="btn-ghost btn-danger" data-a="delete">削除</button>`);
+    evActions.innerHTML = btns.join('');
+  }
+
+  function renderSession() {
+    const c = ev.current;
+    if (ev.status === 'draft') {
+      sessCard.innerHTML = `<div class="notice"><p style="font-size:18px;font-weight:800;color:var(--ink);margin:0 0 6px">「イベントを開始」を押すと最初のセッションが始まります</p>参加者はQRコード／URLから先にアクセスして待機できます。</div>`;
+      return;
+    }
+    if (!c) {
+      sessCard.innerHTML = `<div class="notice">現在のセッションはありません。<br><button class="btn-ok" data-a="open" style="margin-top:12px">新しいセッションを開始</button></div>`;
+      return;
+    }
+    const open = c.state === 'open' && ev.status === 'running';
+    const restored = c.restoredFrom ? `<span class="badge" title="保存済みセッションを復元中">復元中</span>` : '';
+    sessCard.innerHTML = `
+      <div class="sess-head">
+        <h2>セッション ${c.no}</h2>
+        <span class="badge ${open ? 'open' : 'standby'}">${open ? '投票受付中' : '受付停止中'}</span>${restored}
+        <span class="online">接続中 <b id="online">${ev.online ?? 0}</b> 人</span>
+      </div>
+      <div class="tiles">${BV_CHOICES.map((ch, i) => `
+        <div class="tile" id="tile${i}" style="--soft:${ch.soft};--col:${ch.color}">
+          <div class="ic">${BV_ICONS[i]}</div>
+          <div class="lb">${ch.short}</div>
+          <div class="n" id="cnt${i}">${c.counts[i]}</div>
+        </div>`).join('')}</div>
+      <div class="total-line">合計 <b id="cntTotal">${sum(c.counts)}</b> 票</div>
+      <div class="label-row"><span>発表者・本</span><input type="text" id="curLabel" maxlength="80" placeholder="例：山田さん『〇〇〇〇』（保存時にも入力できます）"></div>
+      <div class="controls">
+        ${ev.status !== 'running' ? '<span class="muted small">イベント終了中は投票を受け付けません</span>'
+          : open ? `<button data-a="pause">⏸ 受付を一時停止</button>` : `<button class="btn-ok" data-a="open">▶ 投票受付を開始</button>`}
+        <button class="btn-danger" data-a="reset">↺ このセッションをリセット</button>
+        <span class="spacer"></span>
+        <button class="btn-primary btn-lg" data-a="save">💾 保存して次へ</button>
+      </div>
+      <label class="check"><input type="checkbox" id="autoStart" ${ev.autoStart ? 'checked' : ''}> 保存後、次のセッションの投票受付をすぐに開始する</label>`;
+    const inp = document.getElementById('curLabel');
+    inp.value = c.label || '';
+    let t;
+    inp.oninput = () => { clearTimeout(t); t = setTimeout(() => act('PATCH', '/session', { label: inp.value }), 500); };
+    document.getElementById('autoStart').onchange = (e) => act('PATCH', '', { autoStart: e.target.checked });
+  }
+
+  function renderDisplayMini() {
+    dispMini.innerHTML = BV_CHOICES.map((ch, i) => `<span>${iconMini(i)}<span style="color:${ch.color}" id="dsp${i}">${ev.display[i]}</span></span>`).join('');
+  }
+
+  function renderSaved() {
+    if (!ev.saved.length) {
+      savedList.innerHTML = `<p class="muted small" style="text-align:center;padding:24px 0">まだ保存されたセッションはありません。<br>「保存して次へ」を押すとここに格納されます。</p>`;
+      return;
+    }
+    const maxAll = Math.max(1, ...ev.saved.flatMap((s) => s.counts));
+    const topWant = Math.max(...ev.saved.map((s) => s.counts[0]));
+    savedList.innerHTML = ev.saved.map((s) => `
+      <div class="s-item" data-id="${s.id}">
+        <div class="t">
+          <span class="no">#${s.no}</span>
+          <span class="name">${esc(s.label)}</span>
+          ${topWant > 0 && s.counts[0] === topWant ? '<span class="crown">読んでみたい最多</span>' : ''}
+        </div>
+        <div class="bars">${s.counts.map((n, i) => `
+          <div class="bar">${iconMini(i)}<div class="track"><div class="fill" style="width:${(n / maxAll) * 100}%;background:${BV_CHOICES[i].color}"></div></div><span class="v">${n}</span></div>`).join('')}
+        </div>
+        <div class="act">
+          <span class="when">合計 ${sum(s.counts)}票・${fmtTime(s.savedAt)}</span>
+          <button data-s="rename">名前変更</button>
+          <button data-s="restore">復元</button>
+          <button data-s="delete" class="btn-danger">削除</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function renderAll() {
+    renderHead();
+    renderSession();
+    renderDisplayMini();
+    renderSaved();
+  }
+
+  // ---------- 初期化 ----------
+  async function init() {
+    const data = await api('GET', `/api/events/${eventId}`);
+    urls = { guest: data.guestUrl, display: data.displayUrl };
+    ev = data;
+    guestUrl.textContent = urls.guest;
+    openGuest.href = urls.guest;
+    openDisplay.href = urls.display;
+    csv.href = `/api/events/${eventId}/export.csv`;
+    const qrSrc = `/api/events/${eventId}/qr.svg`;
+    qrImg.src = qrSrc;
+    qrBig.src = qrSrc;
+    if (/^https?:\/\/(localhost|127\.|\[::1\])/.test(urls.guest)) {
+      lanWarn.hidden = false;
+      lanWarn.textContent = '⚠ 現在 localhost でアクセスしているため、このURLは他の端末から開けません。サーバー起動時に表示される「同じWi-Fiの端末からは: http://…」のアドレスで管理画面を開き直すか、環境変数 PUBLIC_URL を設定してください。';
+    }
+    renderAll();
+    connect();
+  }
+
+  function connect() {
+    const socket = io();
+    socket.on('connect', () => socket.emit('admin:join', eventId));
+    socket.on('denied', () => { location.href = '/room'; });
+    socket.on('state', (s) => {
+      const prevSaved = ev.saved.length;
+      Object.assign(ev, s);
+      renderHead();
+      // 入力中のラベル欄を壊さないよう、セッションが変わった時だけ再描画
+      const inp = document.getElementById('curLabel');
+      const focused = inp && document.activeElement === inp && sessCard.dataset.sid === (ev.current?.id || '');
+      if (!focused) renderSession();
+      sessCard.dataset.sid = ev.current?.id || '';
+      renderDisplayMini();
+      renderSaved();
+      if (ev.saved.length > prevSaved) savedList.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    socket.on('online', (n) => { ev.online = n; const el = document.getElementById('online'); if (el) el.textContent = n; });
+    socket.on('tick', (t) => {
+      ev.display = t.display;
+      BV_CHOICES.forEach((_, i) => { const d = document.getElementById('dsp' + i); if (d) d.textContent = t.display[i]; });
+      if (!ev.current || t.sessionId !== ev.current.id) return;
+      ev.current.counts = t.counts;
+      t.counts.forEach((n, i) => {
+        const el = document.getElementById('cnt' + i);
+        if (el) el.textContent = n;
+        if (t.pulses[i]) {
+          const tile = document.getElementById('tile' + i);
+          tile.classList.remove('bump'); void tile.offsetWidth; tile.classList.add('bump');
+        }
+      });
+      const tot = document.getElementById('cntTotal');
+      if (tot) tot.textContent = sum(t.counts);
+    });
+  }
+
+  // ---------- 操作 ----------
+  document.addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-a]')?.dataset.a;
+    if (a) {
+      if (a === 'start') return act('POST', '/start');
+      if (a === 'open') return act('POST', '/session/open');
+      if (a === 'pause') return act('POST', '/session/pause');
+      if (a === 'end') {
+        const unsaved = ev.current ? sum(ev.current.counts) : 0;
+        const msg = unsaved ? `現在のセッションに未保存の投票が ${unsaved} 票あります（保存せずに終了しても、イベント再開時に続きから保存できます）。` : '参加者は投票できなくなります。保存済みの結果は残ります。';
+        if (await confirmBox('イベントを終了しますか？', msg, '終了する', true)) act('POST', '/end');
+        return;
+      }
+      if (a === 'delete') {
+        if (await confirmBox('イベントを削除しますか？', '保存済みの結果もすべて削除され、元に戻せません。', '削除する', true)) {
+          await act('DELETE', '');
+          location.href = '/room';
+        }
+        return;
+      }
+      if (a === 'reset') {
+        if (await confirmBox('このセッションをリセットしますか？', '現在のセッションの投票が0に戻り、参加者の画面もリセットされます。「投票受付を開始」を押すまで参加者は押せなくなります。', 'リセット', true)) act('POST', '/session/reset');
+        return;
+      }
+      if (a === 'save') {
+        const c = ev.current;
+        saveMini.innerHTML = BV_CHOICES.map((ch, i) => `<span>${iconMini(i)}<span style="color:${ch.color}">${c.counts[i]}</span></span>`).join('');
+        const inp = document.getElementById('curLabel');
+        saveForm.label.value = inp ? inp.value : c.label;
+        saveModal.classList.add('show');
+        setTimeout(() => saveForm.label.focus(), 50);
+        return;
+      }
+    }
+    const s = e.target.closest('[data-s]');
+    if (s) {
+      const sid = s.closest('.s-item').dataset.id;
+      const item = ev.saved.find((x) => x.id === sid);
+      if (s.dataset.s === 'rename') {
+        const v = prompt('名前（発表者名・本のタイトルなど）', item.label);
+        if (v && v.trim()) act('PATCH', `/saved/${sid}`, { label: v });
+      }
+      if (s.dataset.s === 'delete') {
+        if (await confirmBox(`「${item.label}」を削除しますか？`, 'この保存結果は元に戻せません。', '削除する', true)) act('DELETE', `/saved/${sid}`);
+      }
+      if (s.dataset.s === 'restore') {
+        if (!await confirmBox(`「${item.label}」を復元しますか？`, 'このセッションを現在のセッションに戻し、名前や投票の修正・追加ができるようにします（受付は停止状態で復元されます）。修正後にもう一度「保存して次へ」を押してください。', '復元する')) return;
+        try {
+          await api('POST', `/api/events/${eventId}/saved/${sid}/restore`, {});
+        } catch (ex) {
+          if (ex.needDiscard) {
+            const n = sum(ev.current.counts);
+            if (await confirmBox('未保存の投票があります', `現在のセッションの未保存の投票（${n}票）は破棄されます。よろしいですか？`, '破棄して復元', true)) {
+              act('POST', `/saved/${sid}/restore`, { discardCurrent: true });
+            }
+          } else toast(ex.message, 'error');
+        }
+      }
+    }
+  });
+
+  saveForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const label = saveForm.label.value;
+    saveModal.classList.remove('show');
+    await act('POST', '/session/save', { label });
+    toast('保存しました。次のセッションへ進みます');
+  };
+
+  rename.onclick = () => {
+    const v = prompt('イベント名', ev.name);
+    if (v && v.trim()) act('PATCH', '', { name: v });
+  };
+  copyUrl.onclick = () => navigator.clipboard.writeText(urls.guest).then(() => toast('URLをコピーしました'));
+  copyDisplay.onclick = () => navigator.clipboard.writeText(urls.display).then(() => toast('表示ページURLをコピーしました'));
+  const showQr = () => { qrTitle.textContent = ev.name; qrUrl.textContent = urls.guest; qrModal.classList.add('show'); };
+  bigQr.onclick = showQr;
+  qrBox.onclick = showQr;
+  resetDisplay.onclick = async () => {
+    if (await confirmBox('合計表示をリセットしますか？', '合計表示ページの数が0に戻ります。保存済みの結果や現在のセッションの票数には影響しません。', 'リセット', true)) {
+      act('POST', '/display/reset');
+    }
+  };
+
+  init().catch((ex) => { toast(ex.message, 'error'); setTimeout(() => location.href = '/room', 1500); });
+</script>
+</body>
+</html>
