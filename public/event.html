@@ -133,9 +133,10 @@
         <div class="row">
           <a class="btn btn-primary" id="openDisplay" target="_blank" rel="noopener">合計表示ページを開く ↗</a>
           <button id="copyDisplay">表示ページURLをコピー</button>
+          <button id="toggleRank">🏆 ランキングを映す</button>
           <button class="btn-danger" id="resetDisplay">合計表示をリセット</button>
         </div>
-        <p class="muted small" style="margin:10px 0 0">プロジェクター等に映す用の画面です。ゲストがボタンを押すたびにリアルタイムで数が増えます。表示の数はここからいつでも0に戻せます（保存済みの結果には影響しません）。</p>
+        <p class="muted small" style="margin:10px 0 0">プロジェクター等に映す用の画面です。ゲストがボタンを押すたびにリアルタイムで数が増えます。表示の数はここからいつでも0に戻せます（保存済みの結果には影響しません）。イベントを終了すると、自動で「読んでみたい！」ランキングに切り替わります。</p>
       </section>
     </div>
 
@@ -278,7 +279,15 @@
     document.getElementById('autoStart').onchange = (e) => act('PATCH', '', { autoStart: e.target.checked });
   }
 
+  function renderRankToggle() {
+    const on = ev.displayMode === 'ranking';
+    toggleRank.textContent = on ? '投票数の表示に戻す' : '🏆 ランキングを映す';
+    toggleRank.classList.toggle('btn-primary', on);
+  }
+  toggleRank.onclick = () => act('PATCH', '', { displayMode: ev.displayMode === 'ranking' ? 'counts' : 'ranking' });
+
   function renderDisplayMini() {
+    renderRankToggle();
     dispMini.innerHTML = BV_CHOICES.map((ch, i) => `<span>${iconMini(i)}<span style="color:${ch.color}" id="dsp${i}">${ev.display[i]}</span></span>`).join('');
   }
 

@@ -81,7 +81,7 @@ function publicSession(s) {
 
 function adminState(ev, base) {
   const out = {
-    id: ev.id, name: ev.name, slug: ev.slug, status: ev.status, autoStart: ev.autoStart,
+    id: ev.id, name: ev.name, slug: ev.slug, status: ev.status, autoStart: ev.autoStart, displayMode: ev.displayMode === 'ranking' ? 'ranking' : 'counts',
     current: ev.current ? publicSession(ev.current) : null,
     saved: ev.saved.map(publicSession), display: ev.display, createdAt: ev.createdAt,
     online: roomSize('g:' + ev.slug),
@@ -93,9 +93,22 @@ function adminState(ev, base) {
   return out;
 }
 
+// 「読んでみたい」の多い順（同数は同順位。並びは「購入要検討」の多い順→番号順）
+function ranking(ev) {
+  const list = [...ev.saved].sort((a, b) => b.counts[0] - a.counts[0] || b.counts[1] - a.counts[1] || a.no - b.no);
+  let rank = 0;
+  return list.map((s, i) => {
+    if (i === 0 || s.counts[0] !== list[i - 1].counts[0]) rank = i + 1;
+    const tie = list.filter((x) => x.counts[0] === s.counts[0]).length > 1;
+    return { rank, tie, no: s.no, label: s.label, counts: s.counts };
+  });
+}
+
 function displayState(ev) {
+  const mode = ev.displayMode === 'ranking' ? 'ranking' : 'counts';
   return {
-    name: ev.name, status: ev.status, display: ev.display,
+    name: ev.name, status: ev.status, display: ev.display, mode,
+    ranking: mode === 'ranking' ? ranking(ev) : null,
     session: ev.current ? { no: ev.current.no, state: ev.current.state, label: ev.current.label } : null,
   };
 }
@@ -218,6 +231,7 @@ app.patch('/api/events/:id', auth, ownEvent, (req, res) => {
   const ev = req.ev;
   if (typeof req.body?.name === 'string' && req.body.name.trim()) ev.name = req.body.name.trim().slice(0, 80);
   if (typeof req.body?.autoStart === 'boolean') ev.autoStart = req.body.autoStart;
+  if (['counts', 'ranking'].includes(req.body?.displayMode)) ev.displayMode = req.body.displayMode;
   broadcast(ev);
   res.json({ ok: true });
 });
@@ -239,6 +253,7 @@ app.get('/api/events/:id/qr.svg', auth, ownEvent, async (req, res) => {
 app.post('/api/events/:id/start', auth, ownEvent, (req, res) => {
   const ev = req.ev;
   ev.status = 'running';
+  ev.displayMode = 'counts';
   if (!ev.current) newSession(ev, 'open');
   else ev.current.state = 'open';
   broadcast(ev);
@@ -248,6 +263,7 @@ app.post('/api/events/:id/start', auth, ownEvent, (req, res) => {
 app.post('/api/events/:id/end', auth, ownEvent, (req, res) => {
   const ev = req.ev;
   ev.status = 'ended';
+  ev.displayMode = 'ranking'; // 終了したら合計表示ページをランキングに切り替える
   if (ev.current) ev.current.state = 'standby';
   broadcast(ev);
   res.json({ ok: true });

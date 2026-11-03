@@ -35,8 +35,6 @@
   @keyframes plus { from { transform: translateY(0) scale(.7); opacity: 0; } 20% { opacity: 1; transform: translateY(-10px) scale(1.15); } to { transform: translateY(-80px); opacity: 0; } }
   footer { display: flex; justify-content: center; gap: 2vw; align-items: center; padding: 0 3vw 2vh; font-weight: 800; color: var(--muted); font-size: clamp(14px, 1.6vw, 24px); }
   footer b { color: var(--ink); font-size: 1.4em; font-variant-numeric: tabular-nums; }
-  .fs { position: fixed; right: 12px; bottom: 12px; opacity: 0; transition: opacity .3s; }
-  body:hover .fs { opacity: .85; }
   .gone { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; font-size: 24px; font-weight: 800; background: var(--bg); z-index: 9; }
   @media (max-aspect-ratio: 3/4) {
     .cols { grid-template-columns: 1fr; }
@@ -44,6 +42,41 @@
     .col .ic, .col.c0 .ic { width: 18vh; }
     .col .n { font-size: 12vh; }
   }
+
+  /* ---------- ランキング ---------- */
+  .rank-view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 1.4vh; padding: 1vh 6vw 4vh; position: relative; overflow: hidden; }
+  .rank-view.hidden, .cols.hidden, footer.hidden { display: none; }
+  .r-row {
+    flex: 1 1 0; max-height: 15vh; min-height: 0; display: grid; grid-template-columns: 12vh minmax(0, 1fr) auto; align-items: center; gap: 2.4vw;
+    background: var(--paper); border: 3px solid var(--ink); border-radius: 2.2vh; padding: 0 2.4vw; box-shadow: 0 .7vh 0 var(--ink);
+    opacity: 0; transform: translateY(4vh) scale(.98);
+  }
+  .r-row.show { animation: rowIn .7s cubic-bezier(.2, .9, .3, 1.2) forwards; }
+  .r-row.still { opacity: 1; transform: none; }
+  @keyframes rowIn { to { opacity: 1; transform: none; } }
+  .r-row.r1 { max-height: 21vh; flex-grow: 1.5; background: #fff3c4; border-color: #8a6300; box-shadow: 0 .8vh 0 #8a6300; }
+  .r-row.r2 { background: #f3f3f6; }
+  .r-row.r3 { background: #fbeee2; }
+  .r-row.r1.show { animation: rowIn .9s cubic-bezier(.2, .9, .3, 1.2) forwards, glow 2.4s ease-in-out .9s infinite; }
+  @keyframes glow { 50% { box-shadow: 0 .8vh 0 #8a6300, 0 0 4vh rgba(255, 196, 0, .6); } }
+  .r-pos { text-align: center; font-weight: 900; line-height: 1; font-size: 7vh; font-variant-numeric: tabular-nums; }
+  .r-pos small { display: block; font-size: 2vh; color: var(--muted); margin-top: .4vh; white-space: nowrap; }
+  .r-row.r1 .r-pos { font-size: 10vh; }
+  .r-name { font-weight: 900; font-size: clamp(18px, 4.4vh, 60px); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .r-row.r1 .r-name { font-size: clamp(22px, 6vh, 80px); }
+  .r-sub { display: flex; gap: 2vw; font-weight: 800; color: var(--muted); font-size: clamp(12px, 2.2vh, 28px); margin-top: .4vh; }
+  .r-sub i { display: inline-block; width: 2.6vh; height: 2.6vh; vertical-align: -.5vh; }
+  .r-want { display: flex; align-items: center; gap: 1.2vw; color: var(--c1); font-weight: 900; font-size: clamp(28px, 8vh, 120px); font-variant-numeric: tabular-nums; line-height: 1; }
+  .r-want i { display: block; width: 8vh; height: 8vh; }
+  .r-want span { font-size: .35em; color: var(--muted); }
+  .r-row.r1 .r-want { font-size: clamp(32px, 11vh, 150px); }
+  .r-row.r1 .r-want i { width: 11vh; height: 11vh; }
+  .r-empty { margin: auto; font-size: 4vh; font-weight: 800; color: var(--muted); }
+  .confetti { position: absolute; top: -40px; width: 14px; height: 22px; border-radius: 3px; pointer-events: none; z-index: 5; animation: fall var(--t) linear forwards; }
+  @keyframes fall { to { transform: translate(var(--dx), 110vh) rotate(var(--r)); } }
+  .tools { position: fixed; right: 12px; bottom: 12px; display: flex; gap: 8px; opacity: 0; transition: opacity .3s; }
+  body:hover .tools { opacity: .85; }
+  @media (prefers-reduced-motion: reduce) { .r-row { opacity: 1; transform: none; animation: none !important; } .confetti { display: none; } }
 </style>
 </head>
 <body>
@@ -52,8 +85,9 @@
   <div class="sub" id="sub"></div>
 </header>
 <main class="cols" id="cols"></main>
-<footer><span>合計 <b id="total">0</b> 票</span></footer>
-<button class="fs" id="fs">⛶ 全画面</button>
+<main class="rank-view hidden" id="rankView"></main>
+<footer id="foot"><span>合計 <b id="total">0</b> 票</span></footer>
+<div class="tools"><button id="replay" hidden>↻ ランキングを再演出</button><button id="fs">⛶ 全画面</button></div>
 <div class="gone" id="gone">表示できません（URLを確認してください）</div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -125,9 +159,70 @@
     setTimeout(() => p.remove(), 1050);
   }
 
+  // ---------- ランキング表示 ----------
+  let rankKey = null;
+  let lastRanking = [];
+  const MEDAL = ['🥇', '🥈', '🥉'];
+  function renderRanking(list, animate) {
+    lastRanking = list;
+    if (!list.length) { rankView.innerHTML = '<div class="r-empty">保存されたセッションがありません</div>'; return; }
+    rankView.innerHTML = list.map((r) => `
+      <div class="r-row ${r.rank <= 3 ? 'r' + r.rank : ''} ${animate ? '' : 'still'}">
+        <div class="r-pos">${r.rank <= 3 ? MEDAL[r.rank - 1] : r.rank}<small>${r.rank}位${r.tie ? '・同率' : ''}</small></div>
+        <div style="min-width:0"><div class="r-name">${esc(r.label)}</div>
+          <div class="r-sub"><span><i>${BV_ICONS[1]}</i> 購入要検討 ${r.counts[1]}</span><span><i>${BV_ICONS[2]}</i> 興味なし ${r.counts[2]}</span></div></div>
+        <div class="r-want"><i>${BV_ICONS[0]}</i>${r.counts[0]}<span>票</span></div>
+      </div>`).join('');
+    if (!animate) return;
+    // 下位から順に登場し、1位は少し間を置いて発表
+    const rows = [...rankView.querySelectorAll('.r-row')];
+    const n = rows.length;
+    rows.forEach((row, i) => {
+      const order = n - 1 - i;
+      const delay = order * 700 + (list[i].rank === 1 ? 900 : 0);
+      setTimeout(() => {
+        row.classList.add('show');
+        if (list[i].rank === 1) confetti();
+      }, 300 + delay);
+    });
+  }
+  function confetti() {
+    const colors = ['#ff6b4a', '#f2a900', '#6b84a8', '#ffd54a', '#2e8b57'];
+    for (let k = 0; k < 80; k++) {
+      const c = document.createElement('div');
+      c.className = 'confetti';
+      const t = 2.4 + Math.random() * 2;
+      c.style.left = Math.random() * 100 + 'vw';
+      c.style.background = colors[k % colors.length];
+      c.style.setProperty('--t', t + 's');
+      c.style.setProperty('--dx', (Math.random() - .5) * 200 + 'px');
+      c.style.setProperty('--r', Math.random() * 720 + 'deg');
+      c.style.animationDelay = Math.random() * .6 + 's';
+      document.body.appendChild(c);
+      setTimeout(() => c.remove(), (t + .7) * 1000);
+    }
+  }
+  replay.onclick = () => renderRanking(lastRanking, true);
+
   function applyState(s) {
     evName.textContent = s.name;
     document.title = s.name + '｜合計表示';
+    const isRank = s.mode === 'ranking';
+    cols.classList.toggle('hidden', isRank);
+    foot.classList.toggle('hidden', isRank);
+    rankView.classList.toggle('hidden', !isRank);
+    replay.hidden = !isRank;
+    if (isRank) {
+      sub.textContent = '🏆 「読んでみたい！」ランキング';
+      const key = JSON.stringify(s.ranking);
+      if (key !== rankKey) {
+        // 初めて映すときだけ演出。名前の修正などの更新は静かに反映
+        renderRanking(s.ranking || [], rankKey === null);
+        rankKey = key;
+      }
+      return;
+    }
+    rankKey = null;
     const sess = s.session;
     sub.textContent = s.status === 'ended' ? 'イベントは終了しました'
       : s.status === 'draft' ? 'まもなく開始'
@@ -140,6 +235,7 @@
   socket.on('denied', () => { gone.style.display = 'flex'; });
   socket.on('state', applyState);
   socket.on('tick', (t) => {
+    if (!rankView.classList.contains('hidden')) return;
     t.pulses.forEach((c, i) => { if (c > 0) burst(i, c); });
     setTargets(t.display, t.reset);
   });
