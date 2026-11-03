@@ -38,10 +38,16 @@
   .vote .txt { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; position: relative; z-index: 1; min-width: 0; }
   .vote .lb { font-size: clamp(16px, 4.8vw, 26px); font-weight: 900; line-height: 1.25; }
   .vote.v0 .lb { font-size: clamp(22px, 6.6vw, 34px); }
-  .vote .mine { font-size: 13px; font-weight: 800; background: rgba(255,255,255,.75); border-radius: 99px; padding: 2px 12px; display: inline-flex; align-items: baseline; gap: 4px; }
-  .vote .mine b { font-size: 22px; color: var(--col); font-variant-numeric: tabular-nums; display: inline-block; min-width: 1ch; text-align: center; }
-  .vote .mine b.pop { animation: pop .3s ease-out; }
-  @keyframes pop { 40% { transform: scale(1.6); } }
+  .vote .mine { font-size: 13px; font-weight: 800; background: rgba(255,255,255,.75); border-radius: 99px; padding: 3px 12px; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  .vote .mine .dot { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid currentColor; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; }
+  /* 選択中のボタン */
+  .vote.selected { outline: 5px solid var(--col); outline-offset: 3px; }
+  .vote.selected .mine { background: var(--col); color: #fff; }
+  .vote.selected .mine .dot { background: #fff; border-color: #fff; color: var(--col); }
+  .vote.selected .mine.pop { animation: pop .35s ease-out; }
+  .buttons.has-choice .vote:not(.selected):not(:disabled) { filter: saturate(.55); opacity: .72; }
+  @keyframes pop { 40% { transform: scale(1.15); } }
+  .hint { font-size: 13px; color: var(--muted); font-weight: 700; margin-top: 4px; min-height: 1.4em; }
 
   .ripple { position: absolute; border-radius: 50%; background: var(--col); opacity: .35; transform: scale(0); animation: ripple .55s ease-out forwards; pointer-events: none; }
   @keyframes ripple { to { transform: scale(1); opacity: 0; } }
@@ -73,6 +79,7 @@
 <header>
   <h1 id="evName">読み込み中…</h1>
   <div class="status" id="statusEl"></div>
+  <div class="hint" id="hint"></div>
   <button class="sound" id="soundBtn" aria-label="効果音のオン/オフ">🔊</button>
 </header>
 <main class="buttons" id="buttons"></main>
@@ -84,7 +91,14 @@
   const slug = location.pathname.split('/').pop();
   let state = null;
   let sessionId = null;
-  let mine = [0, 0, 0];
+  let mine = null; // このセッションで選んでいるボタン（0〜2）。未選択は null
+  // 端末ごとの投票ID（1端末1票。ブラウザに残っていれば同じ票として扱う）
+  let voterId = null;
+  try { voterId = localStorage.getItem('bv:voter'); } catch (e) {}
+  if (!voterId || !/^[A-Za-z0-9_-]{8,40}$/.test(voterId)) {
+    voterId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
+    try { localStorage.setItem('bv:voter', voterId); } catch (e) {}
+  }
   let soundOn = true;
   try { soundOn = localStorage.getItem('bv:sound') !== 'off'; } catch (e) {}
   soundBtn.textContent = soundOn ? '🔊' : '🔈';
@@ -94,21 +108,31 @@
   buttons.innerHTML = BV_CHOICES.map((ch, i) => `
     <button class="vote v${i}" data-i="${i}" style="--soft:${ch.soft};--col:${ch.color}" disabled>
       <span class="ic">${BV_ICONS[i]}</span>
-      <span class="txt"><span class="lb">${ch.label.replace('・・', '・・<br>')}</span><span class="mine">あなた <b id="m${i}">0</b> 回</span></span>
+      <span class="txt"><span class="lb">${ch.label.replace('・・', '・・<br>')}</span><span class="mine" id="m${i}"><span class="dot"></span><span class="t">タップで選ぶ</span></span></span>
     </button>`).join('');
   const btnEls = [...buttons.querySelectorAll('.vote')];
 
-  // ---------- 手元の回数（タブを閉じるとリセット / リロードでは継続） ----------
-  const key = () => `bv:${slug}:${sessionId}`;
-  function loadMine() {
-    try { mine = JSON.parse(sessionStorage.getItem(key())) || [0, 0, 0]; } catch (e) { mine = [0, 0, 0]; }
+  // ---------- 自分の選択 ----------
+  function showMine(pop = false) {
+    btnEls.forEach((b, i) => {
+      const on = mine === i;
+      b.classList.toggle('selected', on);
+      b.setAttribute('aria-pressed', String(on));
+      const m = document.getElementById('m' + i);
+      m.querySelector('.dot').textContent = on ? '✓' : '';
+      m.querySelector('.t').textContent = on ? 'あなたの選択' : mine === null ? 'タップで選ぶ' : 'タップで変更';
+      if (on && pop) { m.classList.remove('pop'); void m.offsetWidth; m.classList.add('pop'); }
+    });
+    buttons.classList.toggle('has-choice', mine !== null);
   }
-  function saveMine() { try { sessionStorage.setItem(key(), JSON.stringify(mine)); } catch (e) {} }
-  function showMine(pop = -1) {
-    mine.forEach((n, i) => {
-      const el = document.getElementById('m' + i);
-      el.textContent = n;
-      if (i === pop) { el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+  function fetchMine() {
+    const sid = sessionId;
+    if (!sid || !socket.connected) return;
+    socket.timeout(5000).emit('mychoice', sid, (err, res) => {
+      if (err || sid !== sessionId) return;
+      mine = Number.isInteger(res?.choice) ? res.choice : null;
+      showMine();
+      render();
     });
   }
 
@@ -151,7 +175,7 @@
     setTimeout(() => rip.remove(), 600);
     const f = document.createElement('span');
     f.className = 'float';
-    f.textContent = '+1';
+    f.textContent = '✓';
     Object.assign(f.style, { left: px + 'px', top: py + 'px' });
     btn.appendChild(f);
     setTimeout(() => f.remove(), 850);
@@ -187,6 +211,7 @@
     else if (s.status === 'ended') { big = 'イベントは終了しました'; small = 'ご参加ありがとうございました！'; statusEl.textContent = '終了'; }
     else if (!ok) { big = '次の投票までお待ちください'; small = '投票が始まるとボタンが押せるようになります。'; statusEl.textContent = s.session ? `第${s.session.no}セッション・受付前` : '受付前'; }
     else statusEl.textContent = `第${s.session.no}セッション・投票受付中！`;
+    hint.textContent = ok ? (mine === null ? 'どれか1つを選んでください' : '選び直せます（管理者が保存するまで）') : '';
     ovBig.textContent = big;
     ovSmall.textContent = small;
     overlay.classList.toggle('show', !ok);
@@ -195,17 +220,19 @@
   function applyState(s) {
     const newId = s.session?.id || null;
     if (newId !== sessionId) {
-      const hadVotes = mine.some((n) => n > 0);
+      const had = mine !== null;
       sessionId = newId;
-      loadMine();
+      mine = null;
       showMine();
-      if (hadVotes && !mine.some((n) => n > 0)) {
+      if (had) {
         const el = document.createElement('div');
         el.className = 'reset-flash';
         el.innerHTML = '投票がリセットされました<br><span style="font-size:13px;font-weight:700">次のセッションをお待ちください</span>';
         document.body.appendChild(el);
         setTimeout(() => el.remove(), 1700);
       }
+      state = s;
+      fetchMine();
     }
     state = s;
     render();
@@ -213,7 +240,7 @@
 
   // ---------- 通信 ----------
   const socket = io({ transports: ['websocket', 'polling'] });
-  socket.on('connect', () => { socket.emit('guest:join', slug); render(); });
+  socket.on('connect', () => { socket.emit('guest:join', { slug, voterId }); render(); fetchMine(); });
   socket.on('disconnect', render);
   socket.on('state', applyState);
 
@@ -227,15 +254,17 @@
     animate(btn, i, x, y);
     play(i);
     if (navigator.vibrate) navigator.vibrate(12);
-    const sid = sessionId;
-    mine[i]++;
-    saveMine();
-    showMine(i);
+    if (mine === i) return;
+    const sid = sessionId, before = mine;
+    mine = i;
+    showMine(true);
+    render();
     socket.timeout(5000).emit('vote', { sessionId: sid, choice: i }, (err, res) => {
       if (!err && res?.ok) return;
-      if (sid === sessionId && mine[i] > 0) { mine[i]--; saveMine(); showMine(); }
+      if (sid === sessionId && mine === i) { mine = before; showMine(); render(); }
       if (res?.state) applyState(res.state);
       if (res?.limited) toast('ちょっと速すぎます！');
+      else if (err) toast('送信できませんでした。もう一度タップしてください', 'error');
     });
   });
 

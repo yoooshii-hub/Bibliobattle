@@ -56,7 +56,7 @@ function nextNo(ev) {
 }
 
 function newSession(ev, state) {
-  ev.current = { id: rid(8), no: nextNo(ev), label: '', counts: zeros(), state, startedAt: now() };
+  ev.current = { id: rid(8), no: nextNo(ev), label: '', counts: zeros(), votes: {}, state, startedAt: now() };
   return ev.current;
 }
 
@@ -73,10 +73,17 @@ function roomSize(room) {
   return io.sockets.adapter.rooms.get(room)?.size || 0;
 }
 
+// 参加者ごとの選択（votes）は管理画面に送らず、人数だけ渡す
+function publicSession(s) {
+  const { votes, ...rest } = s;
+  return { ...rest, voters: Object.keys(votes || {}).length };
+}
+
 function adminState(ev, base) {
   const out = {
     id: ev.id, name: ev.name, slug: ev.slug, status: ev.status, autoStart: ev.autoStart,
-    current: ev.current, saved: ev.saved, display: ev.display, createdAt: ev.createdAt,
+    current: ev.current ? publicSession(ev.current) : null,
+    saved: ev.saved.map(publicSession), display: ev.display, createdAt: ev.createdAt,
     online: roomSize('g:' + ev.slug),
   };
   if (base) {
@@ -108,7 +115,7 @@ setInterval(() => {
     const ev = store.db.events[eventId];
     pending.delete(eventId);
     if (!ev) continue;
-    const payload = { sessionId: ev.current?.id, counts: ev.current?.counts || zeros(), display: ev.display, pulses };
+    const payload = { sessionId: ev.current?.id, counts: ev.current?.counts || zeros(), voters: Object.keys(ev.current?.votes || {}).length, display: ev.display, pulses };
     io.to('a:' + ev.id).emit('tick', payload);
     io.to('d:' + ev.slug).emit('tick', payload);
   }
@@ -268,6 +275,7 @@ app.post('/api/events/:id/session/reset', auth, ownEvent, (req, res) => {
   if (ev.current) {
     ev.current.id = rid(8);
     ev.current.counts = zeros();
+    ev.current.votes = {};
     ev.current.state = 'standby';
   }
   broadcast(ev);
@@ -280,7 +288,7 @@ app.post('/api/events/:id/session/save', auth, ownEvent, (req, res) => {
   const cur = ev.current;
   if (!cur) return res.status(400).json({ error: '保存するセッションがありません' });
   const label = String(req.body?.label ?? cur.label ?? '').trim().slice(0, 80);
-  ev.saved.push({ id: cur.restoredFrom || cur.id, no: cur.no, label: label || `セッション ${cur.no}`, counts: [...cur.counts], savedAt: now() });
+  ev.saved.push({ id: cur.restoredFrom || cur.id, no: cur.no, label: label || `セッション ${cur.no}`, counts: [...cur.counts], votes: { ...(cur.votes || {}) }, savedAt: now() });
   ev.saved.sort((a, b) => a.no - b.no);
   ev.current = null;
   newSession(ev, ev.status === 'running' && ev.autoStart ? 'open' : 'standby');
@@ -322,7 +330,7 @@ app.post('/api/events/:id/saved/:sid/restore', auth, ownEvent, (req, res) => {
   }
   ev.saved = ev.saved.filter((x) => x.id !== s.id);
   ev.current = {
-    id: rid(8), restoredFrom: s.id, no: s.no, label: s.label, counts: [...s.counts],
+    id: rid(8), restoredFrom: s.id, no: s.no, label: s.label, counts: [...s.counts], votes: { ...(s.votes || {}) },
     state: 'standby', startedAt: now(),
   };
   broadcast(ev);
@@ -333,7 +341,7 @@ app.post('/api/events/:id/saved/:sid/restore', auth, ownEvent, (req, res) => {
 app.post('/api/events/:id/display/reset', auth, ownEvent, (req, res) => {
   req.ev.display = zeros();
   broadcast(req.ev);
-  io.to('a:' + req.ev.id).emit('tick', { sessionId: req.ev.current?.id, counts: req.ev.current?.counts || zeros(), display: req.ev.display, pulses: zeros() });
+  io.to('a:' + req.ev.id).emit('tick', { sessionId: req.ev.current?.id, counts: req.ev.current?.counts || zeros(), voters: Object.keys(req.ev.current?.votes || {}).length, display: req.ev.display, pulses: zeros() });
   io.to('d:' + req.ev.slug).emit('tick', { display: req.ev.display, pulses: zeros(), reset: true });
   res.json({ ok: true });
 });
@@ -365,11 +373,15 @@ const findBySlug = (slug) => Object.values(store.db.events).find((e) => e.slug =
 
 io.on('connection', (socket) => {
   let guestEv = null;
+  let voterId = null;
   let lastSec = 0;
   let inSec = 0;
 
   // 参加者
-  socket.on('guest:join', (slug) => {
+  socket.on('guest:join', (msg) => {
+    const slug = typeof msg === 'string' ? msg : msg?.slug;
+    const vid = typeof msg === 'object' ? String(msg?.voterId || '') : '';
+    voterId = /^[A-Za-z0-9_-]{8,40}$/.test(vid) ? vid : 'anon-' + socket.id;
     const ev = findBySlug(String(slug));
     if (!ev) return socket.emit('state', { status: 'notfound' });
     guestEv = ev.id;
@@ -378,27 +390,46 @@ io.on('connection', (socket) => {
     io.to('a:' + ev.id).emit('online', roomSize('g:' + ev.slug));
   });
 
+  // この端末が現在のセッションで選んでいるボタン（無ければ null）
+  socket.on('mychoice', (sessionId, ack) => {
+    if (typeof ack !== 'function') return;
+    const ev = guestEv && store.db.events[guestEv];
+    const cur = ev?.current;
+    if (!cur || cur.id !== sessionId) return ack({ choice: null });
+    const c = cur.votes?.[voterId];
+    ack({ choice: Number.isInteger(c) ? c : null });
+  });
+
+  // 投票：1端末につき1つだけ選べる。保存されるまで選び直せる
   socket.on('vote', (msg, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     const ev = guestEv && store.db.events[guestEv];
     const choice = Number(msg?.choice);
-    if (!ev || !Number.isInteger(choice) || choice < 0 || choice >= CHOICES) return reply({ ok: false });
+    if (!ev || !voterId || !Number.isInteger(choice) || choice < 0 || choice >= CHOICES) return reply({ ok: false });
     const cur = ev.current;
     if (ev.status !== 'running' || !cur || cur.state !== 'open' || cur.id !== msg.sessionId) {
       return reply({ ok: false, state: guestState(ev) });
     }
-    // 連打対策：1台あたり毎秒 12 回まで
+    // 連打対策：1台あたり毎秒 8 回まで
     const sec = Math.floor(Date.now() / 1000);
     if (sec !== lastSec) { lastSec = sec; inSec = 0; }
-    if (++inSec > 12) return reply({ ok: false, limited: true });
+    if (++inSec > 8) return reply({ ok: false, limited: true });
 
+    cur.votes = cur.votes || {};
+    const prev = cur.votes[voterId];
+    if (prev === choice) return reply({ ok: true, choice });
+    if (Number.isInteger(prev)) {
+      cur.counts[prev] = Math.max(0, cur.counts[prev] - 1);
+      ev.display[prev] = Math.max(0, ev.display[prev] - 1);
+    }
+    cur.votes[voterId] = choice;
     cur.counts[choice]++;
     ev.display[choice]++;
     const p = pending.get(ev.id) || zeros();
     p[choice]++;
     pending.set(ev.id, p);
     store.save();
-    reply({ ok: true });
+    reply({ ok: true, choice });
   });
 
   // 管理者
