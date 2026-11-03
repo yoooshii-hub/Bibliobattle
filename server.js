@@ -65,6 +65,8 @@ function guestState(ev) {
   return {
     name: ev.name,
     status: ev.status,
+    // 終了後、合計表示がランキングのときは参加者のスマホにも最終ランキングを出す
+    ranking: ev.status === 'ended' && ev.displayMode === 'ranking' ? ranking(ev) : null,
     session: ev.current ? { id: ev.current.id, no: ev.current.no, state: ev.current.state } : null,
   };
 }
