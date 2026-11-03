@@ -9,7 +9,10 @@ const store = require('./store');
 
 const PORT = Number(process.env.PORT) || 3000;
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
-const SIGNUP_CODE = process.env.SIGNUP_CODE || ''; // 設定すると管理者登録に招待コードが必要
+// 全角/半角・大文字/小文字・前後の空白の違いを吸収して比べる
+const norm = (v) => String(v ?? '').normalize('NFKC').trim();
+const normCode = (v) => norm(v).replace(/\s+/g, '').toLowerCase();
+const SIGNUP_CODE = normCode(process.env.SIGNUP_CODE); // 設定すると管理者登録に招待コードが必要
 const CHOICES = 3;
 
 const app = express();
@@ -118,8 +121,10 @@ function setTokenCookie(res, token) {
 
 app.post('/api/signup', (req, res) => {
   const { username, password, code } = req.body || {};
-  const name = String(username || '').trim();
-  if (SIGNUP_CODE && code !== SIGNUP_CODE) return res.status(403).json({ error: '招待コードが違います' });
+  const name = norm(username);
+  if (SIGNUP_CODE && normCode(code) !== SIGNUP_CODE) {
+    return res.status(403).json({ error: '招待コードが違います（Render の環境変数 SIGNUP_CODE に設定した文字を入力してください）' });
+  }
   if (name.length < 2 || name.length > 40) return res.status(400).json({ error: 'ユーザー名は2〜40文字で入力してください' });
   if (String(password || '').length < 6) return res.status(400).json({ error: 'パスワードは6文字以上にしてください' });
   if (Object.values(store.db.admins).some((a) => a.username.toLowerCase() === name.toLowerCase())) {
@@ -137,7 +142,7 @@ app.post('/api/signup', (req, res) => {
 
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
-  const a = Object.values(store.db.admins).find((x) => x.username.toLowerCase() === String(username || '').trim().toLowerCase());
+  const a = Object.values(store.db.admins).find((x) => x.username.toLowerCase() === norm(username).toLowerCase());
   if (!a) return res.status(401).json({ error: 'ユーザー名またはパスワードが違います' });
   const { hash } = hashPassword(String(password || ''), a.salt);
   if (!crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(a.hash, 'hex'))) {

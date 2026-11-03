@@ -30,9 +30,9 @@
       <button id="tSignup" type="button">アカウント作成</button>
     </div>
     <form id="form">
-      <label class="field">ユーザー名<input type="text" name="username" autocomplete="username" required></label>
+      <label class="field">ユーザー名<input type="text" name="username" autocomplete="username" autocapitalize="off" autocorrect="off" spellcheck="false" required></label>
       <label class="field">パスワード<input type="password" name="password" autocomplete="current-password" required></label>
-      <label class="field" id="codeField" hidden>招待コード<input type="text" name="code"></label>
+      <label class="field" id="codeField" hidden>招待コード<input type="text" name="code" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><span class="muted small" style="display:block;font-weight:400">Render の環境変数 <code>SIGNUP_CODE</code> に設定した文字です（大文字・小文字、全角・半角は区別しません）</span></label>
       <div class="err" id="err"></div>
       <button class="btn-primary btn-lg" style="width:100%" id="submit">ログイン</button>
     </form>
